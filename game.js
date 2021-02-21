@@ -1,8 +1,21 @@
+import Player from "./player.js";
+
 var canvas = document.getElementById("renderCanvas");
 
 var engine = null;
 var scene = null;
 var sceneToRender = null;
+var camera;
+var tile_array = [];
+var player;
+var playerScale = 0.3;
+var playerMove = playerScale / 2;
+var bulletArray = [];
+var totalBullets = 32;
+
+var angle = 0;
+//var playerObj = new Player("MainPlayer");
+
 var createDefaultEngine = function () {
     return new BABYLON.Engine(canvas,
         true,
@@ -13,7 +26,7 @@ var createDefaultEngine = function () {
         });
 };
 
-initFunction = async function () {
+var initFunction = async function () {
     var asyncEngineCreation = async function () {
         try {
             return createDefaultEngine();
@@ -22,7 +35,6 @@ initFunction = async function () {
             return createDefaultEngine();
         }
     }
-
     engine = await asyncEngineCreation();
     if (!engine) throw 'engine should not be null.';
     scene = createScene();
@@ -31,6 +43,19 @@ initFunction().then(() => {
     sceneToRender = scene
     engine.runRenderLoop(function () {
         if (sceneToRender && sceneToRender.activeCamera) {
+            angle += 0.01;
+            for (var i = 0; i < tile_array.length; i = i + 1) {
+                if (tile_array[i]) {
+                    tile_array[i].position.y = Math.sin(angle + i) / 10.0;
+                }
+            }
+            // for (var i = 0; i < bulletArray.length; i = i + 1) {
+            //     bulletArray[i].position.x += 0.1;
+            // }
+            bulletArray[0].position.x += 0.1;
+
+            //playerObj.Update();
+               
             sceneToRender.render();
         }
     });
@@ -75,77 +100,39 @@ BABYLON.DefaultLoadingScreen.prototype.hideLoadingUI = function () {
 
 const createScene = () => {
     engine.displayLoadingUI();
+
     const scene = new BABYLON.Scene(engine);
 
-    const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 4, 10, new BABYLON.Vector3(0, 0, 0));
-    camera.attachControl(canvas, true);
+    // Camera and lights
+    SetupEnvironment();
 
-    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0));
+    // Load the level
+    CreateLevel(scene);
 
-    //const box = BABYLON.MeshBuilder.CreateBox("box", {});
-    //box.position.y = 0.5;
+    // player
+    CreatePlayer(scene);
 
-    var tile_array = [];
-    var totalRows = 5;
-    var totalCols = 5;
-    var totalTiles = 0;
-    // var tileMesh = BABYLON.SceneLoader.ImportMeshAsync("Cube", "assets/models/", "Tiles.gltf").then((result) => {
-    //     console.log(result);
-    //     console.log(scene);
-    //     const tile = scene.getMeshByName("__root__");
-    //     tile.position.x = 2;
-    //     tile.scaling = new BABYLON.Vector3(.5,.5,.5);
-    // });
-
-    BABYLON.SceneLoader.ImportMesh("Cube", "assets/models/", "Tiles.gltf", scene, function (newMeshes) {
-        const tile = scene.getMeshByName("__root__");
-        for (let i = 0; i < totalRows; i++) {
-            for (let j = 0; j < totalCols; j++) {
-                var curTile = tile.clone("tile_" + i);
-                curTile.scaling = new BABYLON.Vector3(0.5, 0.5, 0.5);
-                curTile.position.z = i * 1.1 - totalRows / 2;
-                curTile.position.x = j * 1.1 - totalCols / 2;
-                curTile.position.y = 0;
-                tile_array.push(curTile);
-            }
-        }
-        tile.setEnabled(false);
-        //console.log(tile_array);
-    });
-
-    BABYLON.SceneLoader.ImportMesh("Body", "assets/models/", "Robo.gltf", scene, function (newMeshes) {
-        const tile = scene.getMeshByName("__root__");
-        //console.log(newMeshes);
-        for (let i = 0; i < totalRows; i++) {
-            var curTile = newMeshes[0].clone("Robo_" + i);
-            curTile.scaling = new BABYLON.Vector3(0.5, 0.5, 0.5);
-            curTile.position.x = i * 1.1 - totalRows / 2;
-            curTile.position.y = 1;
-            CreateParticles_02(curTile.position);
-            //curTile.position.y = 1;
-            //tile_array.push(curTile);
-        }
-        newMeshes[0].setEnabled(false);
-        //console.log(tile_array);
-        engine.hideLoadingUI();
-    });
-
-    // var tileMesh = await BABYLON.SceneLoader.ImportMeshAsync("Cube", "assets/models/", "Tiles.gltf");
-    // var curTile = tileMesh.createInstance("tile_2");
-
-    CreateGroundGrid();
-
-    // Skybox
-    CreateSkybox(scene);
+    var yellowMat = new BABYLON.StandardMaterial("yellowMat", scene);
+    yellowMat.emissiveColor = new BABYLON.Color3(1, 1, 0);
+    var bulletMesh = BABYLON.Mesh.CreateIcoSphere("icosphere", { radius: 0.05, subdivisions: 1 });
+    for (let i = 0; i < 10; i++) {
+        var curBullet = bulletMesh.createInstance();
+        curBullet.position.x = i;
+        curBullet.position.y = 100;
+        //curBullet.material = yellowMat;
+        bulletArray.push(curBullet);
+    }
 
     // Mouse
     scene.onPointerObservable.add((pointerInfo) => {
         switch (pointerInfo.type) {
             case BABYLON.PointerEventTypes.POINTERDOWN:
                 console.log("POINTER DOWN");
+                player.position.y = 1;
                 break;
             case BABYLON.PointerEventTypes.POINTERUP:
                 console.log("POINTER UP");
+                player.position.y = 0.5;
                 break;
             case BABYLON.PointerEventTypes.POINTERMOVE:
                 console.log("POINTER MOVE");
@@ -170,17 +157,37 @@ const createScene = () => {
         switch (kbInfo.type) {
             case BABYLON.KeyboardEventTypes.KEYDOWN:
                 console.log("KEY DOWN: ", kbInfo.event.key);
+                if (kbInfo.event.key == "w") {
+                    player.position.z += playerMove;
+                    //player.rotate(new BABYLON.Vector3(0,1,0), Math.PI/2);
+                    player.rotation = new BABYLON.Vector3(0, 0, 0);
+                }
+                else if (kbInfo.event.key == "s") {
+                    player.position.z -= playerMove;
+                    player.rotation = new BABYLON.Vector3(0, -Math.PI, 0);
+                }
+                if (kbInfo.event.key == "a") {
+                    player.position.x -= playerMove;
+                    player.rotation = new BABYLON.Vector3(0, -Math.PI / 2, 0);
+                }
+                else if (kbInfo.event.key == "d") {
+                    player.position.x += playerMove;
+                    player.rotation = new BABYLON.Vector3(0, Math.PI / 2, 0);
+                }
                 break;
             case BABYLON.KeyboardEventTypes.KEYUP:
                 console.log("KEY UP: ", kbInfo.event.keyCode);
+                if(kbInfo.event.keyCode == 32){
+                    bulletArray[0].position.x = player.position.x;
+                    bulletArray[0].position.y = player.position.y;
+                    bulletArray[0].position.z = player.position.z;
+                }
                 break;
         }
     });
 
-    //CreateParticles_02();
-    // rain particles
-    //CreateParticles_03();
-    CreateParticles_04(scene);
+    // random mesh particles
+    //CreateParticles_04(scene);
 
     // Add audio to game
     //AddAudio(scene);
@@ -195,6 +202,30 @@ const createScene = () => {
 }
 
 
+function SetupEnvironment() {
+
+    // camera
+    SetupCamera();
+
+    // light
+    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0));
+
+    // ground grid
+    CreateGroundGrid();
+
+    // Skybox
+    CreateSkybox();
+}
+
+
+function SetupCamera() {
+    //const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 4, 10, new BABYLON.Vector3(0, 0, 0));
+    camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 5, -13), scene);
+    camera.setTarget(BABYLON.Vector3.Zero());
+    camera.attachControl(canvas, true);
+}
+
+
 function CreateGroundGrid() {
     const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 25, height: 25 });
     var defaultGridMaterial = new BABYLON.GridMaterial("default", scene);
@@ -206,7 +237,7 @@ function CreateGroundGrid() {
 }
 
 
-function CreateSkybox(scene){
+function CreateSkybox() {
     var skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 500.0 }, scene);
     var skyboxMaterial = new BABYLON.StandardMaterial("skyBox", scene);
     skyboxMaterial.backFaceCulling = false;
@@ -214,10 +245,81 @@ function CreateSkybox(scene){
     skyboxMaterial.reflectionTexture.coordinatesMode = BABYLON.Texture.SKYBOX_MODE;
     skyboxMaterial.disableLighting = true;
     skybox.material = skyboxMaterial;
+
+    var defaultGridMaterial = new BABYLON.GridMaterial("default", scene);
+    defaultGridMaterial.majorUnitFrequency = 10;
+    defaultGridMaterial.backFaceCulling = false;
+    defaultGridMaterial.gridRatio = 10;
+    defaultGridMaterial.lineColor = new BABYLON.Color3(0, .5, 1);
+    defaultGridMaterial.mainColor = new BABYLON.Color3(.1, .1, .2);
+    skybox.material = defaultGridMaterial;
 }
 
 
-function AddAudio(scene){
+function CreateLevel(scene) {
+    var totalRows = 12;
+    var totalCols = 12;
+    var totalTiles = 0;
+
+    BABYLON.SceneLoader.ImportMesh("Cube", "assets/models/", "Tiles.gltf", scene, function (newMeshes) {
+        var levlMapRoot = new BABYLON.TransformNode("levlMap");
+        levlMapRoot.position = new BABYLON.Vector3(0, 0, 0);
+        var pivotPos = new BABYLON.Vector3(0, 0, 0);
+        pivotPos.z = -totalRows / 2;
+        pivotPos.x = -totalCols / 2;
+        for (let i = 0; i < totalRows; i++) {
+            for (let j = 0; j < totalCols; j++) {
+                var tilePos = new BABYLON.Vector3(0, 0, 0);
+                tilePos.x = pivotPos.x + j;
+                tilePos.z = pivotPos.z + i;
+                tilePos.y = 0;
+                var curChild = newMeshes[0].instantiateHierarchy();
+                curChild.name = "Tile_" + i + "_" + j;
+                curChild.position = tilePos;
+                curChild.setParent(levlMapRoot);
+                tile_array.push(curChild);
+            }
+        }
+        for (let k = 0; k < newMeshes.length; k++) {
+            newMeshes[k].isVisible = false;
+        }
+    });
+    //CreatePlayer(scene);
+}
+
+
+function CreatePlayer(scene) {
+    var totalPlayers = 2;
+
+    BABYLON.SceneLoader.ImportMesh("Body", "assets/models/", "Robo.gltf", scene, function (newMeshes, transformNodes) {
+        //console.log(newMeshes);
+        //console.log(transformNodes);
+        var pivotPos = new BABYLON.Vector3(0, 0, 0);
+        //var player = new BABYLON.TransformNode("Player_");// + i + "_" + j);
+        for (let i = 0; i < totalPlayers; i++) {
+            newMeshes[0].setParent(null);
+            var curChild = newMeshes[0].instantiateHierarchy();
+            curChild.name = "Player_" + i;
+            curChild.position.x = i * 3;
+            curChild.position.z = i * 3;
+            curChild.position.y = 0.5;
+            curChild.scaling = new BABYLON.Vector3(playerScale, playerScale, playerScale);
+            CreateParticles_02(curChild.position);
+            if (i == 0) {
+                player = curChild;
+                console.log("player = " + player);
+            }
+        }
+        for (let k = 0; k < newMeshes.length; k++) {
+            newMeshes[k].isVisible = false;
+        }
+        console.log("player = " + player);
+        engine.hideLoadingUI();
+    });
+}
+
+
+function AddAudio(scene) {
     const musicBg = new BABYLON.Sound("musicBg", "assets/audios/chordz.mp3", scene, null, { loop: true, autoplay: true });
     const sfxClick = new BABYLON.Sound("sfxClick", "assets/audios/click.wav", scene, null, { loop: false, autoplay: false });
     setInterval(() => sfxClick.play(), 3000);
@@ -275,27 +377,39 @@ function CreateParticles_02(orgin) {
     //Texture of each particle
     particleSystem.particleTexture = new BABYLON.Texture("assets/textures/flare.png");
 
-    // Position where the particles are emiited from
     particleSystem.emitter = orgin;
 
-    particleSystem.minEmitBox = new BABYLON.Vector3(-0.2, -0.2, -0.2); // Starting all from
-    particleSystem.maxEmitBox = new BABYLON.Vector3(0.2, 0.2, 0.2); // To...
+    //createConeEmitter
+    var hemisphericEmitter = particleSystem.createCylinderEmitter();
+    hemisphericEmitter.height = 0.1;
+    hemisphericEmitter.radius = 0.2;
+    hemisphericEmitter.radiusRange = 0.3;
+    //hemisphericEmitter.angle = Math.PI;
 
-    particleSystem.minSize = 0.01;
-    particleSystem.maxSize = 0.1;
+    // particleSystem.minEmitBox = new BABYLON.Vector3(-0.2, -0.2, -0.2); // Starting all from
+    // particleSystem.maxEmitBox = new BABYLON.Vector3(0.2, 0.2, 0.2); // To...
 
+    particleSystem.minEmitPower = 0.3;
+    particleSystem.maxEmitPower = 0.3;
+
+    particleSystem.emitRate = 100;
+    // size
+    particleSystem.minSize = 0.02;
+    particleSystem.maxSize = 0.13;
+    // time
+    particleSystem.minLifeTime = 0.5;
+    particleSystem.maxLifeTime = 0.5;
+    // colors
     particleSystem.color1 = new BABYLON.Color4(0.7, 0.8, 1.0, 1.0);
     particleSystem.color2 = new BABYLON.Color4(0.2, 0.5, 1.0, 1.0);
-    particleSystem.colorDead = new BABYLON.Color4(0, 0, 0.2, 0.0);
+    particleSystem.colorDead = new BABYLON.Color4(0, 0, 0.2, 1.0);
 
     // particleSystem.addColorGradient(0, new BABYLON.Color4(1, 1, 1, 0), new BABYLON.Color4(1, 0, 1, 0)); //color range at start of particle lifetime
     // particleSystem.addColorGradient(0.4, new BABYLON.Color4(1, 1, 1, 0.5), new BABYLON.Color4(1, 0, 1, 0.5)); //color range at 2/5 of particle lifetime
     // particleSystem.addColorGradient(1.0, new BABYLON.Color4(1, 1, 1, 1), new BABYLON.Color4(1, 0, 1, 1)); //color range at end of particle lifetime
 
     // Set the gravity of all particles
-    particleSystem.gravity = new BABYLON.Vector3(0, -10, 0);
-
-    particleSystem.emitRate = 100;
+    particleSystem.gravity = new BABYLON.Vector3(0, 0, 0);
 
     particleSystem.start();
 }
@@ -342,9 +456,9 @@ function CreateParticles_04(scene) {
 function ApplyPostProcessing_01(camera) {
     var postProcess = new BABYLON.DigitalRainPostProcess("DigitalRain", camera,
         {
-            font: "16px Monospace",
+            font: "21px Monospace",
             mixToNormal: 0.7,
-            mixToTile: 0.7
+            mixToTile: 0.45
         });
 }
 
